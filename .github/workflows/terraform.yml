@@ -1,0 +1,77 @@
+name: Terraform
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  TF_VERSION: "~1.6"
+  AWS_REGION:  "eu-west-1"
+
+jobs:
+  terraform-dev:
+    name: Deploy Dev
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Select Dev Workspace
+        run: |
+          terraform workspace select dev || terraform workspace new dev
+
+      - name: Terraform Plan (Dev)
+        run: terraform plan -var-file="environments/dev.tfvars"
+
+      # Only apply on push to main — not on pull requests
+      - name: Terraform Apply (Dev)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve -var-file="environments/dev.tfvars"
+
+  terraform-prod:
+    name: Deploy Prod
+    runs-on: ubuntu-latest
+    needs: terraform-dev   # prod only runs after dev succeeds
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Select Prod Workspace
+        run: |
+          terraform workspace select prod || terraform workspace new prod
+
+      - name: Terraform Apply (Prod)
+        run: terraform apply -auto-approve -var-file="environments/prod.tfvars"
